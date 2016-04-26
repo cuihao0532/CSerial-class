@@ -6,6 +6,24 @@ using std::vector;
 
 namespace cuish
 {
+    typedef struct _tagOverlappedParam : public OVERLAPPED
+    {
+    public:
+        _tagOverlappedParam() { memset(this, 0, sizeof(*this)); eop = Operate_MAX; }
+
+        enum eOperate
+        {
+            Operate_READ  = 0,
+            Operate_WRITE = 1,
+            Operate_MAX  
+        };
+
+        eOperate eop;
+
+        void* pData;
+
+    }OverlappedParam, *POverlappedParam;
+
     class CSerial
     {
     public:
@@ -26,26 +44,33 @@ namespace cuish
 
         bool Open(LPCTSTR lpSerialPort, OpenMode eMode);
 
-
-        bool Set();
-
+        bool SetState(DWORD dwBaudRate/*波特率*/, BYTE byteParity/*校验*/, BYTE byteStopBits/*停止位*/);
 
         bool Read(PVOID pvBuffer, DWORD dwNumBytesRead, PDWORD pdwNumBytes);
 
-
         bool Write(const PVOID pvBuffer, DWORD dwNumBytesToWrite, PDWORD pdwNumBytes);
+
+        bool SetTimeout();
+
+        bool SetBufferSize(DWORD dwInput, DWORD dwOutput);
+
+        bool Start();
+
+        bool Close();
 
 
     protected:
         HANDLE m_hSerialPort;
         HANDLE m_hIocp;
         DWORD  m_dwCompletionKey;
-        OVERLAPPED m_overlapped;
+        OverlappedParam m_overlappedRead;
+        OverlappedParam m_overlappedWrite;
         ISerialEventHandler* m_pEventHandler;
         
         std::vector<HANDLE> m_vecThreadPool;
         std::vector<HANDLE> m_vecExitEvents; 
 
+        bool m_bExitThreads;
 
 
 

@@ -8,9 +8,10 @@ namespace cuish
         m_hSerialPort = INVALID_HANDLE_VALUE;
         m_hIocp       = NULL;
         m_dwCompletionKey = 1;
-        memset(&m_overlapped, 0, sizeof(m_overlapped));
-
+        m_overlappedRead.eop = OverlappedParam::Operate_READ;
+        m_overlappedWrite.eop = OverlappedParam::Operate_WRITE; 
         m_pEventHandler = NULL;
+        m_bExitThreads = false;
     }
 
 
@@ -19,13 +20,77 @@ namespace cuish
         m_hSerialPort = INVALID_HANDLE_VALUE;
         m_hIocp       = NULL;
         m_dwCompletionKey = 1;
-        memset(&m_overlapped, 0, sizeof(m_overlapped));
+        m_overlappedRead.eop = OverlappedParam::Operate_READ;
+        m_overlappedWrite.eop = OverlappedParam::Operate_WRITE; 
+        m_bExitThreads = false;
 
         m_pEventHandler = pHandler; 
     }
 
     CSerial::~CSerial(void)
     {
+        Close();
+    }
+
+
+    bool CSerial::SetState(
+        DWORD dwBaudRate     /*波特率*/, 
+        BYTE byteParity      /*校验*/,
+        BYTE byteStopBits    /*停止位*/)
+    {
+        if ( !m_hSerialPort ) return false;
+
+        DCB dcb;
+        BOOL bRet = GetCommState(m_hSerialPort, &dcb);
+        if ( !bRet ) return false;
+
+        dcb.BaudRate = dwBaudRate;
+        dcb.Parity = byteParity;
+        dcb.StopBits = byteStopBits; 
+        dcb.ByteSize = 8;
+
+        bRet = SetCommState(m_hSerialPort, &dcb); 
+        return bRet;
+    }
+
+    bool CSerial::Read(PVOID pvBuffer, DWORD dwNumBytesRead, PDWORD pdwNumBytes)
+    {
+        if ( !m_hSerialPort ) return false;
+
+        m_overlappedRead.pData = pvBuffer;
+        ReadFile(m_hSerialPort, pvBuffer, dwNumBytesRead, pdwNumBytes, &m_overlappedRead); 
+        return true;
+    }
+
+    bool CSerial::Write(const PVOID pvBuffer, DWORD dwNumBytesToWrite, PDWORD pdwNumBytes)
+    {
+        if ( !m_hSerialPort ) return false;
+
+        m_overlappedWrite.pData = pvBuffer;
+        WriteFile(m_hSerialPort, pvBuffer, dwNumBytesToWrite, pdwNumBytes, &m_overlappedWrite);
+        return true;
+    }
+
+    bool CSerial::SetBufferSize(DWORD dwInput, DWORD dwOutput)
+    {
+        if ( !m_hSerialPort ) return false;
+
+        BOOL bRet = SetupComm(m_hSerialPort, dwInput, dwOutput); 
+        return ( bRet ? true : false );
+    }
+
+    bool CSerial::Start()
+    {
+        if ( !m_hSerialPort ) return false;
+
+        PurgeComm(m_hSerialPort, PURGE_TXCLEAR | PURGE_RXCLEAR);
+        return InitThreadPool(); 
+    }
+
+    bool CSerial::Close()
+    {
+        m_bExitThreads = true;
+
         // 设置退出线程事件
         for (int i = 0; i < m_vecExitEvents.size(); ++ i )
         {
@@ -51,10 +116,10 @@ namespace cuish
         {
             CloseHandle(m_hIocp);
             m_hIocp = NULL;
-        }
-        
-    }
+        } 
 
+        return true;
+    }
 
     HANDLE CSerial::CreateIocp()
     {
@@ -122,9 +187,10 @@ namespace cuish
 
         if ( INVALID_HANDLE_VALUE == m_hSerialPort )
         {
-            m_hSerialPort = CreateFile(lpSerialPort, 0, eMode, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
+            m_hSerialPort = CreateFile(lpSerialPort, eMode, 0, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
             if ( INVALID_HANDLE_VALUE == m_hSerialPort )
             { 
+                DWORD dwErr = GetLastError();
                 return false;
             }
 
@@ -138,10 +204,7 @@ namespace cuish
         return bRet;
     }
 
-
-
-
-
+     
 
 
 
@@ -152,14 +215,32 @@ namespace cuish
         if ( !pSerial ) return 0;
 
         ISerialEventHandler* pHandler = pSerial->m_pEventHandler; 
+        DWORD dwBytes = 0;
+        DWORD dwCompleteKey = 0;
+        POverlappedParam lpOverlapped = NULL;
 
-        while ( true )
+        while ( ! pSerial->m_bExitThreads )
         {
-            if ( pHandler )
+            BOOL bRet = GetQueuedCompletionStatus(
+                pSerial->m_hIocp, &dwBytes, &dwCompleteKey, (LPOVERLAPPED*)( &lpOverlapped ), INFINITE);
+
+            if ( !bRet)  continue;
+
+            // 读完成
+            if ( lpOverlapped && OverlappedParam::Operate_READ == lpOverlapped->eop )
             {
-                pHandler->ReadFinish();
-                pHandler->WriteFinish();
+                if ( pHandler )
+                    pHandler->ReadFinish(lpOverlapped->pData, lpOverlapped->InternalHigh);
             }
+            
+
+            // 写完成
+            if ( lpOverlapped && OverlappedParam::Operate_WRITE == lpOverlapped->eop )
+            {
+                if ( pHandler )
+                    pHandler->WriteFinish(lpOverlapped->pData, lpOverlapped->InternalHigh); 
+            } 
+            
         }
         
 

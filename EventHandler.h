@@ -3,6 +3,6 @@
 
 __interface ISerialEventHandler
 {
-    void ReadFinish();
-    void WriteFinish();
+    void ReadFinish(void* pBuf,  DWORD  dwRead);
+    void WriteFinish(void* pBuf, DWORD  dwWritten );
 };

@@ -46,10 +46,17 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 
 
     CCom com;
-    com.Init();
-    
+    com.Init(TEXT("COM1"), CSerial::Serial_Read_Write_Data);
+    com.SetState(9600, NOPARITY, TWOSTOPBITS);
+    com.SetBufferSize(10, 10);
+    com.Start();
 
+    char* pBuf = new char[ 100 ]();
+    strcpy_s(pBuf, 100, "hello world hello moto en heng");
+    com.Write(pBuf, sizeof(char) * 100);
+
+    int a = 0;
+    cin >> a;
 	return nRetCode;
 }
 
- 
